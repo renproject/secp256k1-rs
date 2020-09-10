@@ -1,7 +1,8 @@
 use libc::{c_int, c_uchar, size_t};
+use rand::Rng;
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Fe {
     limbs: [u64; 5],
 }
@@ -73,8 +74,8 @@ pub fn equal_var(a: &Fe, b: &Fe) -> c_int {
 pub fn cmp_var(a: &Fe, b: &Fe) -> c_int {
     unsafe { secp256k1_fe_cmp_var_export(a, b) }
 }
-pub fn set_b32(r: &mut Fe, a: &c_uchar) -> c_int {
-    unsafe { secp256k1_fe_set_b32_export(r, a) }
+pub fn set_b32(r: &mut Fe, a: &[u8]) -> c_int {
+    unsafe { secp256k1_fe_set_b32_export(r, a.as_ptr()) }
 }
 pub fn get_b32(r: &mut c_uchar, a: &Fe) {
     unsafe { secp256k1_fe_get_b32_export(r, a) }
@@ -114,6 +115,27 @@ pub fn cmov(r: &mut Fe, a: &Fe, flag: c_int) {
 }
 
 impl Fe {
+    pub fn new_random_using_thread_rng() -> Self {
+        let bs: [u8; 32] = rand::thread_rng().gen();
+        let mut fe = Fe::default();
+        fe.set_b32(&bs);
+        fe
+    }
+
+    pub fn set_b32(&mut self, bs: &[u8]) -> bool {
+        // TODO: Panic if the slice if not long enough?
+        unsafe { secp256k1_fe_set_b32_export(self, bs.as_ptr()) != 0 }
+    }
+
+    pub fn put_b32(&self, bs: &mut [u8]) {
+        // TODO: Panic if the slice if not long enough?
+        unsafe { secp256k1_fe_get_b32_export(bs.as_mut_ptr(), self) }
+    }
+
+    pub fn is_odd(&self) -> bool {
+        unsafe { secp256k1_fe_is_odd_export(self) != 0 }
+    }
+
     pub fn mul(&mut self, a: &Fe, b: &Fe) {
         unsafe { secp256k1_fe_mul_export(self, a, b) }
     }
@@ -143,57 +165,4 @@ impl PartialEq for Fe {
 impl Eq for Fe {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use test::Bencher;
-
-    #[bench]
-    fn bench_fe_add(b: &mut Bencher) {
-        let mut r = Fe {
-            limbs: [123, 234, 345, 456, 567],
-        };
-        let mut x = Fe {
-            limbs: [987, 876, 765, 654, 543],
-        };
-        b.iter(|| add(&mut r, &mut x));
-    }
-
-    #[bench]
-    fn bench_fe_mul(b: &mut Bencher) {
-        let mut r = Fe { limbs: [0; 5] };
-        let mut x = Fe {
-            limbs: [123, 234, 345, 456, 567],
-        };
-        let mut y = Fe {
-            limbs: [987, 876, 765, 654, 543],
-        };
-        b.iter(|| mul(&mut r, &mut x, &mut y));
-    }
-
-    #[bench]
-    fn bench_fe_inverse(b: &mut Bencher) {
-        let mut r = Fe { limbs: [0; 5] };
-        let mut x = Fe {
-            limbs: [123, 234, 345, 456, 567],
-        };
-        b.iter(|| inv_var(&mut r, &mut x));
-    }
-
-    #[bench]
-    fn bench_fe_normalize(b: &mut Bencher) {
-        b.iter(|| {
-            // r is set an defined in here to try to avoid later iterations working on already
-            // normalized data.
-            let mut r = Fe {
-                limbs: [
-                    0xfefe_fefe_fefe_fefe,
-                    0xdcdc_dcdc_dcdc_dcdc,
-                    0xbaba_baba_baba_baba,
-                    0x9898_9898_9898_9898,
-                    0x7676_7676_7676_7676,
-                ],
-            };
-            normalize_var(&mut r)
-        });
-    }
-}
+mod tests {}

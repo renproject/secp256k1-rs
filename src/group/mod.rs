@@ -1,4 +1,5 @@
 use libc::c_int;
+use rand::Rng;
 
 pub mod fe;
 
@@ -6,7 +7,7 @@ use crate::scalar::Scalar;
 use fe::Fe;
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug)]
 pub struct Ge {
     x: Fe,
     y: Fe,
@@ -14,7 +15,7 @@ pub struct Ge {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug)]
 pub struct Gej {
     x: Fe,
     y: Fe,
@@ -23,7 +24,7 @@ pub struct Gej {
 }
 
 extern "C" {
-    static secp256k1_ge_const_g: Ge;
+    static secp256k1_ge_const_g_export: Ge;
 
     fn secp256k1_ge_set_xy_export(r: *mut Ge, x: *const Fe, y: *const Fe);
     fn secp256k1_ge_set_xquad_export(r: *mut Ge, x: *const Fe) -> c_int;
@@ -74,6 +75,14 @@ extern "C" {
 }
 
 impl Ge {
+    pub fn infinity() -> Self {
+        Ge {
+            x: Fe::default(),
+            y: Fe::default(),
+            infinity: 1,
+        }
+    }
+
     pub fn set_xy(&mut self, x: &Fe, y: &Fe) {
         unsafe { secp256k1_ge_set_xy_export(self, x, y) }
     }
@@ -123,13 +132,68 @@ impl Ge {
         let mut tmp_gej = Gej::default();
         let bits = 257;
         unsafe {
-            secp256k1_ecmult_const_export(&mut tmp_gej, &secp256k1_ge_const_g, q, bits);
+            secp256k1_ecmult_const_export(&mut tmp_gej, &secp256k1_ge_const_g_export, q, bits);
             secp256k1_ge_set_gej_export(self, &mut tmp_gej);
         }
     }
 }
 
+impl Default for Ge {
+    fn default() -> Self {
+        Ge {
+            x: Fe::default(),
+            y: Fe::default(),
+            infinity: 1,
+        }
+    }
+}
+
+impl From<Gej> for Ge {
+    fn from(mut gej: Gej) -> Ge {
+        let mut ge = Ge::default();
+        ge.set_gej(&mut gej);
+        ge
+    }
+}
+
 impl Gej {
+    pub fn new_random_using_thread_rng() -> Self {
+        let mut tmp = Ge::default();
+        let mut gej = Gej::default();
+        while !tmp.set_xo_var(&Fe::new_random_using_thread_rng(), rand::thread_rng().gen()) {}
+        gej.set_ge(&tmp);
+        gej
+    }
+
+    pub fn infinity() -> Self {
+        Gej {
+            x: Fe::default(),
+            y: Fe::default(),
+            z: Fe::default(),
+            infinity: 1,
+        }
+    }
+
+    pub fn set_bytes(&mut self, bs: &[u8]) {
+        let odd = bs[0];
+        let mut x = Fe::default();
+        x.set_b32(&bs[1..]);
+        let mut ge = Ge::default();
+        let success = unsafe { secp256k1_ge_set_xo_var_export(&mut ge, &x, odd as c_int) != 0 };
+        if !success {
+            todo!()
+        }
+        self.set_ge(&ge);
+    }
+
+    pub fn put_bytes(&self, bs: &mut [u8]) {
+        // TODO: How should the point at infinity be handled?
+        let ge: Ge = self.clone().into();
+        let odd = if ge.y.is_odd() { 1 } else { 0 };
+        bs[0] = odd;
+        ge.x.put_b32(&mut bs[1..]);
+    }
+
     pub fn set_infinity(&mut self) {
         unsafe { secp256k1_gej_set_infinity_export(self) }
     }
@@ -160,8 +224,14 @@ impl Gej {
         unsafe { secp256k1_gej_double_var_export(self, a, rzr) }
     }
 
-    pub fn add(&mut self, a: &Gej, b: &Gej, rzr: &mut Fe) {
-        unsafe { secp256k1_gej_add_var_export(self, a, b, rzr) }
+    pub fn add(&mut self, a: &Gej, b: &Gej) {
+        // TODO: Is std::ptr::null_mut() compatiable with c?
+        unsafe { secp256k1_gej_add_var_export(self, a, b, std::ptr::null_mut()) }
+    }
+
+    pub fn add_assign(&mut self, a: &Gej) {
+        // TODO: Is std::ptr::null_mut() compatiable with c?
+        unsafe { secp256k1_gej_add_var_export(self, self, a, std::ptr::null_mut()) }
     }
 
     pub fn add_ge_var(&mut self, a: &Gej, b: &Ge, rzr: &mut Fe) {
@@ -178,14 +248,42 @@ impl Gej {
         unsafe { secp256k1_gej_rescale_export(self, b) }
     }
 
-    pub fn scalar_mul(&mut self, a: &Ge, q: &Scalar) {
+    pub fn scalar_mul(&mut self, a: &Gej, q: &Scalar) {
         let bits = 257;
-        unsafe { secp256k1_ecmult_const_export(self, a, q, bits) }
+        let mut tmp = Ge::default();
+        // TODO: We make a copy here because when converting to a Ge type, the underlying
+        // representation will change, even though it will still represent the same curve point.
+        // Consider avoiding this copy/investigate alternatives.
+        let mut tmp_gej = *a;
+        unsafe {
+            secp256k1_ge_set_gej_export(&mut tmp, &mut tmp_gej);
+            secp256k1_ecmult_const_export(self, &tmp, q, bits)
+        }
+    }
+
+    pub fn scalar_mul_assign(&mut self, q: &Scalar) {
+        let bits = 257;
+        let mut tmp = Ge::default();
+        unsafe {
+            secp256k1_ge_set_gej_export(&mut tmp, self);
+            secp256k1_ecmult_const_export(self, &tmp, q, bits)
+        }
     }
 
     pub fn scalar_base_mul(&mut self, q: &Scalar) {
         let bits = 257;
-        unsafe { secp256k1_ecmult_const_export(self, &secp256k1_ge_const_g, q, bits) }
+        unsafe { secp256k1_ecmult_const_export(self, &secp256k1_ge_const_g_export, q, bits) }
+    }
+}
+
+impl Default for Gej {
+    fn default() -> Self {
+        Gej {
+            x: Fe::default(),
+            y: Fe::default(),
+            z: Fe::default(),
+            infinity: 1,
+        }
     }
 }
 
@@ -205,3 +303,11 @@ impl PartialEq for Gej {
     }
 }
 impl Eq for Gej {}
+
+impl From<Ge> for Gej {
+    fn from(ge: Ge) -> Self {
+        let mut gej = Gej::default();
+        gej.set_ge(&ge);
+        gej
+    }
+}

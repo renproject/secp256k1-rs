@@ -1,5 +1,4 @@
-#![feature(test)]
-
+#[cfg(all(feature, test))]
 extern crate test;
 
 pub mod group;

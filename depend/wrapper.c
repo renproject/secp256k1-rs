@@ -1,12 +1,14 @@
-#define USE_NUM_GMP
+#define USE_NUM_NONE
 
 #define HAVE___INT128
 #define USE_SCALAR_4X64
 #define USE_SCALAR_INV_BUILTIN
 
+// Included to supress warnings.
+#include <string.h>
+
 #include "secp256k1/include/secp256k1.h"
 #include "secp256k1/src/util.h"
-#include "secp256k1/src/num_gmp_impl.h"
 #include "secp256k1/src/scalar.h"
 #include "secp256k1/src/scalar_impl.h"
 #include "secp256k1/src/scalar_4x64_impl.h"
@@ -73,21 +75,25 @@ int secp256k1_scalar_is_high_export(const secp256k1_scalar *a) {
 int secp256k1_scalar_cond_negate_export(secp256k1_scalar *a, int flag) {
 	return secp256k1_scalar_cond_negate(a, flag);
 }
+#ifndef USE_NUM_NONE
 void secp256k1_scalar_get_num_export(secp256k1_num *r, const secp256k1_scalar *a) {
 	return secp256k1_scalar_get_num(r, a);
 }
 void secp256k1_scalar_order_get_num_export(secp256k1_num *r) {
 	return secp256k1_scalar_order_get_num(r);
 }
+#endif
 int secp256k1_scalar_eq_export(const secp256k1_scalar *a, const secp256k1_scalar *b) {
 	return secp256k1_scalar_eq(a, b);
 }
+#ifdef USE_ENDOMORPHISM
 void secp256k1_scalar_split_128_export(secp256k1_scalar *r1, secp256k1_scalar *r2, const secp256k1_scalar *a) {
 	return secp256k1_scalar_split_128(r1, r2, a);
 }
 void secp256k1_scalar_split_lambda_export(secp256k1_scalar *r1, secp256k1_scalar *r2, const secp256k1_scalar *a) {
 	return secp256k1_scalar_split_lambda(r1, r2, a);
 }
+#endif
 void secp256k1_scalar_mul_shift_var_export(secp256k1_scalar *r, const secp256k1_scalar *a, const secp256k1_scalar *b, unsigned int shift) {
 	return secp256k1_scalar_mul_shift_var(r, a, b,  shift);
 }
@@ -198,9 +204,16 @@ void secp256k1_fe_cmov_export(secp256k1_fe *r, const secp256k1_fe *a, int flag){
 
 #include "secp256k1/src/group.h"
 #include "secp256k1/src/group_impl.h"
-// #include "secp256k1/src/scratch.h"
-// #include "secp256k1/src/scratch_impl.h"
+#include "secp256k1/src/scratch.h"
+#include "secp256k1/src/scratch_impl.h"
 
+
+const secp256k1_ge secp256k1_ge_const_g_export = SECP256K1_GE_CONST(
+    0x79BE667EUL, 0xF9DCBBACUL, 0x55A06295UL, 0xCE870B07UL,
+    0x029BFCDBUL, 0x2DCE28D9UL, 0x59F2815BUL, 0x16F81798UL,
+    0x483ADA77UL, 0x26A3C465UL, 0x5DA4FBFCUL, 0x0E1108A8UL,
+    0xFD17B448UL, 0xA6855419UL, 0x9C47D08FUL, 0xFB10D4B8UL
+);
 
 void secp256k1_ge_set_xy_export(secp256k1_ge *r, const secp256k1_fe *x, const secp256k1_fe *y) {
 	return secp256k1_ge_set_xy(r, x, y);
@@ -302,4 +315,43 @@ void secp256k1_gej_rescale_export(secp256k1_gej *r, const secp256k1_fe *b) {
 
 void secp256k1_ecmult_const_export(secp256k1_gej *r, const secp256k1_ge *a, const secp256k1_scalar *q, int bits) {
 	return secp256k1_ecmult_const(r, a, q, bits);
+}
+
+/* Warning supression */
+
+void secp256k1_ge_set_gej_var_unused(secp256k1_ge *r, secp256k1_gej *a) {
+	secp256k1_ge_set_gej_var(r, a);
+}
+int secp256k1_gej_is_valid_var_unused(const secp256k1_gej *a) {
+	return secp256k1_gej_is_valid_var(a);
+}
+secp256k1_scratch* secp256k1_scratch_create_unused(const secp256k1_callback* error_callback, size_t max_size) {
+	return secp256k1_scratch_create(error_callback, max_size);
+}
+void secp256k1_scratch_destroy_unused(const secp256k1_callback* error_callback, secp256k1_scratch* scratch) {
+	secp256k1_scratch_destroy(error_callback, scratch);
+}
+void secp256k1_ecmult_context_build_unused(secp256k1_ecmult_context *ctx, void **prealloc) {
+	secp256k1_ecmult_context_build(ctx, prealloc);
+}
+void secp256k1_ecmult_context_finalize_memcpy_unused(secp256k1_ecmult_context *dst, const secp256k1_ecmult_context *src) {
+	secp256k1_ecmult_context_finalize_memcpy(dst, src);
+}
+void secp256k1_ecmult_context_clear_unused(secp256k1_ecmult_context *ctx) {
+	secp256k1_ecmult_context_clear(ctx);
+}
+int secp256k1_ecmult_context_is_built_unused(const secp256k1_ecmult_context *ctx) {
+	return secp256k1_ecmult_context_is_built(ctx);
+}
+int secp256k1_ecmult_strauss_batch_single_unused(const secp256k1_callback* error_callback, const secp256k1_ecmult_context *actx, secp256k1_scratch *scratch, secp256k1_gej *r, const secp256k1_scalar *inp_g_sc, secp256k1_ecmult_multi_callback cb, void *cbdata, size_t n) {
+	return secp256k1_ecmult_strauss_batch_single(error_callback, actx, scratch, r, inp_g_sc, cb, cbdata, n);
+}
+size_t secp256k1_pippenger_scratch_size_unused(size_t n_points, int bucket_window) {
+	return secp256k1_pippenger_scratch_size(n_points, bucket_window);
+}
+int secp256k1_ecmult_pippenger_batch_single_unused(const secp256k1_callback* error_callback, const secp256k1_ecmult_context *actx, secp256k1_scratch *scratch, secp256k1_gej *r, const secp256k1_scalar *inp_g_sc, secp256k1_ecmult_multi_callback cb, void *cbdata, size_t n) {
+	return secp256k1_ecmult_pippenger_batch_single(error_callback, actx, scratch, r, inp_g_sc, cb, cbdata, n);
+}
+int secp256k1_ecmult_multi_var_unused(const secp256k1_callback* error_callback, const secp256k1_ecmult_context *ctx, secp256k1_scratch *scratch, secp256k1_gej *r, const secp256k1_scalar *inp_g_sc, secp256k1_ecmult_multi_callback cb, void *cbdata, size_t n) {
+	return secp256k1_ecmult_multi_var(error_callback, ctx, scratch, r, inp_g_sc, cb, cbdata, n);
 }
